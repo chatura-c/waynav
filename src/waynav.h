@@ -97,6 +97,7 @@ struct command {
 
 struct binding {
     xkb_keysym_t keysym;
+    xkb_keycode_t keycode;
     uint32_t mods; /* bitmask: MOD_SHIFT, MOD_CTRL, etc. */
     struct command commands[MAX_COMMANDS];
     int num_commands;
@@ -129,9 +130,12 @@ struct config {
  * lines are warned and skipped. */
 int config_load(struct config *cfg, const char *path);
 
-/* Return the first binding matching sym+mods, or NULL. */
+xkb_keycode_t config_keycode_for_keysym(struct xkb_keymap *keymap,
+                                        xkb_keysym_t sym);
+void config_resolve_keycodes(struct config *cfg, struct xkb_keymap *keymap);
+
 const struct binding *config_find_binding(const struct config *cfg,
-                                          xkb_keysym_t sym, uint32_t mods);
+                                          xkb_keycode_t keycode, uint32_t mods);
 
 struct overlay;
 

@@ -10,11 +10,32 @@
 #include <string.h>
 #include <unistd.h>
 
+static struct xkb_keymap *keymap = NULL;
+
 static void write_tmp_config(const char *content, const char *path) {
     FILE *f = fopen(path, "w");
     assert(f);
     fputs(content, f);
     fclose(f);
+}
+
+static void build_keymap(void) {
+    struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    assert(context);
+    struct xkb_rule_names names = {
+        .layout = "us",
+    };
+    keymap = xkb_keymap_new_from_names(context, &names,
+                                       XKB_KEYMAP_COMPILE_NO_FLAGS);
+    assert(keymap);
+    xkb_context_unref(context);
+}
+
+static const struct binding *find_binding_by_keysym(const struct config *cfg,
+                                                     xkb_keysym_t sym,
+                                                     uint32_t mods) {
+    xkb_keycode_t keycode = config_keycode_for_keysym(keymap, sym);
+    return config_find_binding(cfg, keycode, mods);
 }
 
 static void test_basic_parse(void) {
@@ -29,6 +50,7 @@ static void test_basic_parse(void) {
 
     struct config cfg;
     assert(config_load(&cfg, path) == 0);
+    config_resolve_keycodes(&cfg, keymap);
     assert(cfg.line_width == GRID_LINE_WIDTH_DEFAULT);
 
     /* start binding is stored separately. */
@@ -41,21 +63,21 @@ static void test_basic_parse(void) {
     assert(cfg.num_bindings == 4);
 
     /* h -> move-left, warp */
-    const struct binding *b = config_find_binding(&cfg, XKB_KEY_h, 0);
+    const struct binding *b = find_binding_by_keysym(&cfg, XKB_KEY_h, 0);
     assert(b);
     assert(b->num_commands == 2);
     assert(b->commands[0].type == CMD_MOVE_LEFT);
     assert(b->commands[1].type == CMD_WARP);
 
     /* shift+h -> cut-left, warp */
-    b = config_find_binding(&cfg, XKB_KEY_h, MOD_SHIFT);
+    b = find_binding_by_keysym(&cfg, XKB_KEY_h, MOD_SHIFT);
     assert(b);
     assert(b->num_commands == 2);
     assert(b->commands[0].type == CMD_CUT_LEFT);
     assert(b->commands[1].type == CMD_WARP);
 
     /* space -> warp, click 1 */
-    b = config_find_binding(&cfg, XKB_KEY_space, 0);
+    b = find_binding_by_keysym(&cfg, XKB_KEY_space, 0);
     assert(b);
     assert(b->num_commands == 2);
     assert(b->commands[0].type == CMD_WARP);
@@ -63,7 +85,7 @@ static void test_basic_parse(void) {
     assert(b->commands[1].arg.button == 1);
 
     /* semicolon -> end */
-    b = config_find_binding(&cfg, XKB_KEY_semicolon, 0);
+    b = find_binding_by_keysym(&cfg, XKB_KEY_semicolon, 0);
     assert(b);
     assert(b->num_commands == 1);
     assert(b->commands[0].type == CMD_END);
@@ -116,14 +138,15 @@ static void test_cell_select(void) {
 
     struct config cfg;
     assert(config_load(&cfg, path) == 0);
+    config_resolve_keycodes(&cfg, keymap);
     assert(cfg.num_bindings == 2);
 
-    const struct binding *b = config_find_binding(&cfg, XKB_KEY_1, 0);
+    const struct binding *b = find_binding_by_keysym(&cfg, XKB_KEY_1, 0);
     assert(b);
     assert(b->commands[0].type == CMD_CELL_SELECT);
     assert(b->commands[0].arg.cell == 1);
 
-    b = config_find_binding(&cfg, XKB_KEY_v, 0);
+    b = find_binding_by_keysym(&cfg, XKB_KEY_v, 0);
     assert(b);
     assert(b->commands[0].type == CMD_CELL_SELECT);
     assert(b->commands[0].arg.cell == 16);
@@ -139,9 +162,10 @@ static void test_shell_command(void) {
 
     struct config cfg;
     assert(config_load(&cfg, path) == 0);
+    config_resolve_keycodes(&cfg, keymap);
     assert(cfg.num_bindings == 1);
 
-    const struct binding *b = config_find_binding(&cfg, XKB_KEY_grave, 0);
+    const struct binding *b = find_binding_by_keysym(&cfg, XKB_KEY_grave, 0);
     assert(b);
     assert(b->commands[0].type == CMD_SHELL);
     assert(strcmp(b->commands[0].arg.shell_cmd, "notify deprecated") == 0);
@@ -158,9 +182,10 @@ static void test_cursorzoom(void) {
 
     struct config cfg;
     assert(config_load(&cfg, path) == 0);
+    config_resolve_keycodes(&cfg, keymap);
     assert(cfg.num_bindings == 1);
 
-    const struct binding *b = config_find_binding(&cfg, XKB_KEY_i, 0);
+    const struct binding *b = find_binding_by_keysym(&cfg, XKB_KEY_i, 0);
     assert(b);
     assert(b->num_commands == 2);
     assert(b->commands[0].type == CMD_GRID);
@@ -182,15 +207,16 @@ static void test_drag(void) {
 
     struct config cfg;
     assert(config_load(&cfg, path) == 0);
+    config_resolve_keycodes(&cfg, keymap);
     assert(cfg.num_bindings == 2);
 
     const struct binding *b =
-        config_find_binding(&cfg, XKB_KEY_space, MOD_SHIFT);
+        find_binding_by_keysym(&cfg, XKB_KEY_space, MOD_SHIFT);
     assert(b);
     assert(b->commands[1].type == CMD_DRAG);
     assert(b->commands[1].arg.button == 1);
 
-    b = config_find_binding(&cfg, XKB_KEY_minus, MOD_SHIFT);
+    b = find_binding_by_keysym(&cfg, XKB_KEY_minus, MOD_SHIFT);
     assert(b);
     assert(b->commands[1].type == CMD_DRAG);
     assert(b->commands[1].arg.button == 3);
@@ -211,10 +237,11 @@ static void test_rejects_command_prefix_extension(void) {
 
     struct config cfg;
     assert(config_load(&cfg, path) == 0);
+    config_resolve_keycodes(&cfg, keymap);
 
     /* Only the well-formed "click" binding survives. */
     assert(cfg.num_bindings == 1);
-    const struct binding *b = config_find_binding(&cfg, XKB_KEY_z, 0);
+    const struct binding *b = find_binding_by_keysym(&cfg, XKB_KEY_z, 0);
     assert(b);
     assert(b->commands[0].type == CMD_CLICK);
     assert(b->commands[0].arg.button == 1);
@@ -256,7 +283,77 @@ static void test_color_defaults(void) {
     unlink(path);
 }
 
+static void test_shifted_bindings_match_the_physical_key(void) {
+    const char *path = "/tmp/waynav_test_config_shifted_bindings";
+    write_tmp_config("h cut-left,warp\n"
+                     "shift+h move-left,warp\n"
+                     "shift+1 click 1\n"
+                     "shift+asterisk drag 2\n",
+                     path);
+
+    struct config cfg = {0};
+    assert(config_load(&cfg, path) == 0);
+    config_resolve_keycodes(&cfg, keymap);
+
+    xkb_keycode_t keycode_h = config_keycode_for_keysym(keymap, XKB_KEY_h);
+    xkb_keycode_t keycode_1 = config_keycode_for_keysym(keymap, XKB_KEY_1);
+    xkb_keycode_t keycode_shift =
+        config_keycode_for_keysym(keymap, XKB_KEY_Shift_L);
+    struct xkb_state *state = xkb_state_new(keymap);
+    assert(keycode_h != XKB_KEYCODE_INVALID);
+    assert(keycode_1 != XKB_KEYCODE_INVALID);
+    assert(keycode_shift != XKB_KEYCODE_INVALID);
+    assert(state);
+    xkb_state_update_key(state, keycode_shift, XKB_KEY_DOWN);
+    assert(xkb_state_key_get_one_sym(state, keycode_h) == XKB_KEY_H);
+    assert(xkb_state_key_get_one_sym(state, keycode_1) == XKB_KEY_exclam);
+
+    const struct binding *binding =
+        find_binding_by_keysym(&cfg, XKB_KEY_h, MOD_SHIFT);
+    assert(binding);
+    assert(binding->commands[0].type == CMD_MOVE_LEFT);
+
+    binding = find_binding_by_keysym(&cfg, XKB_KEY_h, 0);
+    assert(binding);
+    assert(binding->commands[0].type == CMD_CUT_LEFT);
+
+    binding = find_binding_by_keysym(&cfg, XKB_KEY_1, MOD_SHIFT);
+    assert(binding);
+    assert(binding->commands[0].type == CMD_CLICK);
+    assert(binding->commands[0].arg.button == 1);
+
+    binding = find_binding_by_keysym(&cfg, XKB_KEY_8, MOD_SHIFT);
+    assert(binding);
+    assert(binding->commands[0].type == CMD_DRAG);
+    assert(binding->commands[0].arg.button == 2);
+
+    xkb_state_unref(state);
+    unlink(path);
+}
+
+static void test_later_binding_overrides_earlier(void) {
+    const char *path = "/tmp/waynav_test_config_binding_override";
+    write_tmp_config("shift+period click 1\n"
+                     "shift+greater click 3\n",
+                     path);
+
+    struct config cfg = {0};
+    assert(config_load(&cfg, path) == 0);
+    config_resolve_keycodes(&cfg, keymap);
+    assert(cfg.num_bindings == 2);
+
+    const struct binding *binding =
+        find_binding_by_keysym(&cfg, XKB_KEY_period, MOD_SHIFT);
+    assert(binding);
+    assert(binding->commands[0].type == CMD_CLICK);
+    assert(binding->commands[0].arg.button == 3);
+
+    unlink(path);
+}
+
 int main(void) {
+    build_keymap();
+
     test_basic_parse();
     test_line_width();
     test_invalid_line_width_keeps_previous_value();
@@ -267,7 +364,10 @@ int main(void) {
     test_rejects_command_prefix_extension();
     test_colors();
     test_color_defaults();
+    test_shifted_bindings_match_the_physical_key();
+    test_later_binding_overrides_earlier();
 
+    xkb_keymap_unref(keymap);
     printf("All config tests passed.\n");
     return 0;
 }

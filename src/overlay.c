@@ -511,6 +511,8 @@ static void kbd_keymap(void *data, struct wl_keyboard *kbd, uint32_t fmt,
     }
     ov->xkb_state = xkb_state_new(ov->xkb_keymap);
     log_debug("keyboard keymap loaded");
+    if (ov->cfg)
+        config_resolve_keycodes(ov->cfg, ov->xkb_keymap);
 }
 
 static void disarm_repeat(struct overlay *ov) {
@@ -541,13 +543,12 @@ static void handle_key_dispatch(struct overlay *ov, uint32_t key) {
     if (!ov->xkb_state || !ov->cfg)
         return;
 
-    xkb_keycode_t kc = key + 8;
-    xkb_keysym_t sym = xkb_state_key_get_one_sym(ov->xkb_state, kc);
+    xkb_keycode_t keycode = key + 8;
     uint32_t mods = xkb_mods_to_config(ov);
 
-    log_debug("key: sym=0x%x mods=0x%x", sym, mods);
+    log_debug("key: keycode=%u mods=0x%x", keycode, mods);
 
-    const struct binding *b = config_find_binding(ov->cfg, sym, mods);
+    const struct binding *b = config_find_binding(ov->cfg, keycode, mods);
     if (!b)
         return;
 
@@ -1088,6 +1089,9 @@ int overlay_run(struct overlay *ov, struct config *cfg,
     ov->cfg = cfg;
     ov->rs = rs;
     ov->running = true;
+
+    if (ov->xkb_keymap)
+        config_resolve_keycodes(cfg, ov->xkb_keymap);
 
     send_frame(ov);
 

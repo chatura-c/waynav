@@ -211,6 +211,7 @@ static int store_binding(struct config *cfg, const char *path, int lineno,
 
     struct binding *b = &cfg->bindings[cfg->num_bindings];
     b->keysym = sym;
+    b->keycode = XKB_KEYCODE_INVALID;
     b->mods = mods;
     b->num_commands = ncmds;
     memcpy(b->commands, cmds, ncmds * sizeof(struct command));
@@ -384,11 +385,72 @@ int config_load(struct config *cfg, const char *path) {
     return 0;
 }
 
-const struct binding *config_find_binding(const struct config *cfg,
-                                          xkb_keysym_t sym, uint32_t mods) {
-    for (int i = 0; i < cfg->num_bindings; i++) {
-        if (cfg->bindings[i].keysym == sym && cfg->bindings[i].mods == mods)
-            return &cfg->bindings[i];
+xkb_keycode_t config_keycode_for_keysym(struct xkb_keymap *keymap,
+                                        xkb_keysym_t sym) {
+    if (!keymap || sym == XKB_KEY_NoSymbol)
+        return XKB_KEYCODE_INVALID;
+
+    xkb_keycode_t min = xkb_keymap_min_keycode(keymap);
+    xkb_keycode_t max = xkb_keymap_max_keycode(keymap);
+    for (xkb_keycode_t keycode = min; keycode <= max; keycode++) {
+        xkb_layout_index_t layouts =
+            xkb_keymap_num_layouts_for_key(keymap, keycode);
+        for (xkb_layout_index_t layout = 0; layout < layouts; layout++) {
+            xkb_level_index_t levels =
+                xkb_keymap_num_levels_for_key(keymap, keycode, layout);
+            for (xkb_level_index_t level = 0; level < levels; level++) {
+                const xkb_keysym_t *syms = NULL;
+                int count = xkb_keymap_key_get_syms_by_level(
+                    keymap, keycode, layout, level, &syms);
+                for (int i = 0; i < count; i++) {
+                    if (syms[i] == sym)
+                        return keycode;
+                }
+            }
+        }
     }
-    return NULL;
+
+    return XKB_KEYCODE_INVALID;
+}
+
+void config_resolve_keycodes(struct config *cfg, struct xkb_keymap *keymap) {
+    for (int i = 0; i < cfg->num_bindings; i++) {
+        struct binding *binding = &cfg->bindings[i];
+        char name[64] = {0};
+        xkb_keysym_get_name(binding->keysym, name, sizeof(name));
+
+        binding->keycode = config_keycode_for_keysym(keymap, binding->keysym);
+        if (binding->keycode == XKB_KEYCODE_INVALID) {
+            log_warn("no key on this keymap produces '%s': binding ignored",
+                     name);
+            continue;
+        }
+
+        for (int j = 0; j < i; j++) {
+            if (cfg->bindings[j].keycode == binding->keycode &&
+                cfg->bindings[j].mods == binding->mods) {
+                log_warn("'%s' overrides an earlier binding on the same key",
+                         name);
+                break;
+            }
+        }
+
+        log_debug("resolve: sym=0x%x -> keycode=%u", binding->keysym,
+                  binding->keycode);
+    }
+}
+
+const struct binding *config_find_binding(const struct config *cfg,
+                                          xkb_keycode_t keycode,
+                                          uint32_t mods) {
+    if (keycode == XKB_KEYCODE_INVALID)
+        return NULL;
+
+    const struct binding *found = NULL;
+    for (int i = 0; i < cfg->num_bindings; i++) {
+        if (cfg->bindings[i].keycode == keycode &&
+            cfg->bindings[i].mods == mods)
+            found = &cfg->bindings[i];
+    }
+    return found;
 }
