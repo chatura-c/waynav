@@ -8,7 +8,7 @@ project(
     'werror=true',
   ],
   license: 'MIT',
-  version: '1.2.0',
+  version: '1.3.0',
 )
 
 build_version = get_option('build_version')
