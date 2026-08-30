@@ -197,17 +197,23 @@ static bool execute_one(struct overlay *ov, struct region_state *rs,
 
 void execute_commands(struct overlay *ov, struct region_state *rs,
                       const struct command *cmds, int ncmds) {
-    bool did_history_back = false;
+    bool has_history_back = false;
 
     for (int i = 0; i < ncmds; i++) {
-        if (execute_one(ov, rs, &cmds[i]))
-            did_history_back = true;
+        if (cmds[i].type == CMD_HISTORY_BACK) {
+            has_history_back = true;
+            break;
+        }
+    }
+
+    if (!has_history_back)
+        region_save(rs);
+
+    for (int i = 0; i < ncmds; i++) {
+        execute_one(ov, rs, &cmds[i]);
     }
 
     log_debug("region: %dx%d+%d+%d", rs->current.w, rs->current.h,
               rs->current.x, rs->current.y);
-
-    if (!did_history_back)
-        region_save(rs);
     overlay_redraw(ov, rs);
 }
