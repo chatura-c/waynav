@@ -9,6 +9,8 @@
 #include "waynav.h"
 
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,47 +27,46 @@ static xkb_keysym_t parse_keysym(const char *name) {
 /* Parse "shift+ctrl+h" into keysym + modifier mask.
  * Modifiers: shift, ctrl, alt, super.
  * Last token is the key name. */
+static bool parse_modifier(const char *name, uint32_t *mods) {
+    if (strcasecmp(name, "shift") == 0)
+        *mods |= MOD_SHIFT;
+    else if (strcasecmp(name, "ctrl") == 0 || strcasecmp(name, "control") == 0)
+        *mods |= MOD_CTRL;
+    else if (strcasecmp(name, "alt") == 0)
+        *mods |= MOD_ALT;
+    else if (strcasecmp(name, "super") == 0)
+        *mods |= MOD_SUPER;
+    else
+        return false;
+    return true;
+}
+
+/* Parse "shift+ctrl+h" into keysym + modifier mask.
+ * Modifiers: shift, ctrl, alt, super.
+ * Last token is the key name. */
 static int parse_keysequence(const char *seq, xkb_keysym_t *sym,
                              uint32_t *mods) {
-    char buf[256];
-    snprintf(buf, sizeof(buf), "%s", seq);
-
     *mods = 0;
     *sym = XKB_KEY_NoSymbol;
 
-    char *save = NULL;
-    char *tok = strtok_r(buf, "+", &save);
-    char *last = NULL;
-
-    while (tok) {
-        if (last) {
-            if (strcasecmp(last, "shift") == 0)
-                *mods |= MOD_SHIFT;
-            else if (strcasecmp(last, "ctrl") == 0 ||
-                     strcasecmp(last, "control") == 0)
-                *mods |= MOD_CTRL;
-            else if (strcasecmp(last, "alt") == 0)
-                *mods |= MOD_ALT;
-            else if (strcasecmp(last, "super") == 0)
-                *mods |= MOD_SUPER;
-            else {
-                /* Not a known modifier; treat as key name. */
-                *sym = parse_keysym(last);
-                if (*sym == XKB_KEY_NoSymbol)
-                    return -1;
-            }
-        }
-        last = tok;
-        tok = strtok_r(NULL, "+", &save);
-    }
-
-    if (last) {
-        *sym = parse_keysym(last);
-        if (*sym == XKB_KEY_NoSymbol)
+    const char *part = seq;
+    while (true) {
+        const char *plus = strchr(part, '+');
+        size_t len = plus ? (size_t)(plus - part) : strlen(part);
+        char token[64];
+        if (len == 0 || len >= sizeof(token))
             return -1;
-    }
+        memcpy(token, part, len);
+        token[len] = '\0';
 
-    return 0;
+        if (!plus) {
+            *sym = parse_keysym(token);
+            return *sym == XKB_KEY_NoSymbol ? -1 : 0;
+        }
+        if (!parse_modifier(token, mods))
+            return -1;
+        part = plus + 1;
+    }
 }
 
 /* Simple commands: keyword maps directly to type, no args. */
@@ -98,27 +99,158 @@ static bool try_simple_command(const char *str, struct command *cmd) {
     for (size_t i = 0; i < ARRAY_LEN(simple_commands); i++) {
         const char *name = simple_commands[i].name;
         const char *args = match_keyword(str, name);
-        if (args) {
-            cmd->type = simple_commands[i].type;
-            return true;
-        }
+        if (!args)
+            continue;
+        while (isspace((unsigned char)*args))
+            args++;
+        if (*args != '\0')
+            return false;
+        cmd->type = simple_commands[i].type;
+        return true;
     }
     return false;
 }
 
-/* Parse the argument following a "shell"/"sh" keyword. */
-static int parse_shell(const char *args, struct command *cmd) {
-    cmd->type = CMD_SHELL;
-    while (isspace((unsigned char)*args))
+static void skip_spaces(const char **str) {
+    while (isspace((unsigned char)**str))
+        (*str)++;
+}
+
+static bool parse_int_value(const char **str, int *value) {
+    errno = 0;
+    char *end = NULL;
+    long parsed = strtol(*str, &end, 10);
+    if (end == *str || errno == ERANGE || parsed < INT_MIN || parsed > INT_MAX)
+        return false;
+    *value = (int)parsed;
+    *str = end;
+    return true;
+}
+
+static bool parse_positive_int(const char **str, int *value) {
+    return (parse_int_value(str, value) && *value > 0) != 0;
+}
+
+static bool arguments_finished(const char *str) {
+    skip_spaces(&str);
+    return *str == '\0';
+}
+
+static bool has_argument_separator(const char *args) {
+    return isspace((unsigned char)*args);
+}
+
+static bool parse_grid_args(const char *args, int *cols, int *rows) {
+    skip_spaces(&args);
+    if (!parse_positive_int(&args, cols))
+        return false;
+    skip_spaces(&args);
+
+    if (*args == 'x') {
         args++;
+        skip_spaces(&args);
+        if (!parse_positive_int(&args, rows))
+            return false;
+    } else {
+        *rows = *cols;
+    }
+
+    return (arguments_finished(args) && *cols <= GRID_DIMENSION_MAX &&
+            *rows <= GRID_DIMENSION_MAX && *cols <= INT_MAX / *rows) != 0;
+}
+
+static bool parse_size_args(const char *args, int *w, int *h) {
+    skip_spaces(&args);
+    if (!parse_positive_int(&args, w))
+        return false;
+
+    if (*args == '\0') {
+        *h = *w;
+        return true;
+    }
+    if (!isspace((unsigned char)*args))
+        return false;
+    skip_spaces(&args);
+    if (*args == '\0') {
+        *h = *w;
+        return true;
+    }
+    if (!parse_positive_int(&args, h))
+        return false;
+    return arguments_finished(args);
+}
+
+static int parse_grid_command(const char *args, struct command *cmd) {
+    cmd->type = CMD_GRID;
+    if (!parse_grid_args(args, &cmd->arg.grid.cols, &cmd->arg.grid.rows))
+        return -1;
+    return 0;
+}
+
+static int parse_cell_select_command(const char *args, struct command *cmd) {
+    cmd->type = CMD_CELL_SELECT;
+    skip_spaces(&args);
+    if (!parse_positive_int(&args, &cmd->arg.cell) || !arguments_finished(args))
+        return -1;
+    return 0;
+}
+
+static int parse_button_command(const char *args, struct command *cmd,
+                                enum command_type type, int button_max) {
+    cmd->type = type;
+    skip_spaces(&args);
+    if (!parse_positive_int(&args, &cmd->arg.button) ||
+        !arguments_finished(args) || cmd->arg.button > button_max)
+        return -1;
+    return 0;
+}
+
+static int parse_click_command(const char *args, struct command *cmd) {
+    return parse_button_command(args, cmd, CMD_CLICK, CLICK_BUTTON_MAX);
+}
+
+static int parse_drag_command(const char *args, struct command *cmd) {
+    return parse_button_command(args, cmd, CMD_DRAG, DRAG_BUTTON_MAX);
+}
+
+static int parse_cursorzoom_command(const char *args, struct command *cmd) {
+    cmd->type = CMD_CURSORZOOM;
+    if (!parse_size_args(args, &cmd->arg.zoom.w, &cmd->arg.zoom.h))
+        return -1;
+    return 0;
+}
+
+/* Parse the argument following a "shell"/"sh" keyword. */
+static int parse_shell_command(const char *args, struct command *cmd) {
+    cmd->type = CMD_SHELL;
+    skip_spaces(&args);
     size_t len = strlen(args);
-    if (len >= 2 && args[0] == '\'' && args[len - 1] == '\'') {
+    if (len == 0)
+        return -1;
+    if (args[0] == '\'' && args[len - 1] == '\'') {
+        if (len <= 2)
+            return -1;
         cmd->arg.shell_cmd = strndup(args + 1, len - 2);
     } else {
         cmd->arg.shell_cmd = strdup(args);
     }
     return 0;
 }
+
+typedef int (*command_parser)(const char *, struct command *);
+
+static const struct {
+    const char *name;
+    command_parser parse;
+} argument_commands[] = {
+    {"grid", parse_grid_command},
+    {"cell-select", parse_cell_select_command},
+    {"click", parse_click_command},
+    {"drag", parse_drag_command},
+    {"cursorzoom", parse_cursorzoom_command},
+    {"shell", parse_shell_command},
+    {"sh", parse_shell_command},
+};
 
 /* Parse a single command string like "click 1" or "grid 4x4"
  * into a struct command. Returns 0 on success. */
@@ -129,85 +261,64 @@ static int parse_command(const char *str, struct command *cmd) {
     if (try_simple_command(str, cmd))
         return 0;
 
-    const char *args = match_keyword(str, "grid");
-    if (args) {
-        cmd->type = CMD_GRID;
-        int cols = 0, rows = 0;
-        if (sscanf(args, " %dx%d", &cols, &rows) == 2) {
-            cmd->arg.grid.cols = cols;
-            cmd->arg.grid.rows = rows;
-        } else {
-            int n = atoi(args);
-            cmd->arg.grid.cols = n;
-            cmd->arg.grid.rows = n;
-        }
-        return 0;
+    for (size_t i = 0; i < ARRAY_LEN(argument_commands); i++) {
+        const char *args = match_keyword(str, argument_commands[i].name);
+        if (!args)
+            continue;
+        if (!has_argument_separator(args))
+            return -1;
+        return argument_commands[i].parse(args, cmd);
     }
-
-    args = match_keyword(str, "cell-select");
-    if (args) {
-        cmd->type = CMD_CELL_SELECT;
-        cmd->arg.cell = atoi(args);
-        return 0;
-    }
-
-    args = match_keyword(str, "click");
-    if (args) {
-        cmd->type = CMD_CLICK;
-        cmd->arg.button = atoi(args);
-        return 0;
-    }
-
-    args = match_keyword(str, "drag");
-    if (args) {
-        cmd->type = CMD_DRAG;
-        cmd->arg.button = atoi(args);
-        return 0;
-    }
-
-    args = match_keyword(str, "cursorzoom");
-    if (args) {
-        cmd->type = CMD_CURSORZOOM;
-        int w = 0, h = 0;
-        if (sscanf(args, " %d %d", &w, &h) == 2) {
-            cmd->arg.zoom.w = w;
-            cmd->arg.zoom.h = h;
-        } else {
-            int s = atoi(args);
-            cmd->arg.zoom.w = s;
-            cmd->arg.zoom.h = s;
-        }
-        return 0;
-    }
-
-    args = match_keyword(str, "shell");
-    if (!args)
-        args = match_keyword(str, "sh");
-    if (args)
-        return parse_shell(args, cmd);
-
     return -1;
 }
 
 /* Parse a comma-separated command chain into a binding's
  * command array. Returns the number of commands parsed. */
+static void free_shell_commands(const struct command *cmds, int count) {
+    for (int i = 0; i < count; i++) {
+        if (cmds[i].type == CMD_SHELL)
+            free(cmds[i].arg.shell_cmd);
+    }
+}
+
+static void free_binding_shell_commands(const struct binding *bindings,
+                                        int count) {
+    for (int i = 0; i < count; i++)
+        free_shell_commands(bindings[i].commands, bindings[i].num_commands);
+}
+
 static int parse_command_chain(const char *chain, struct command *cmds,
                                int max) {
-    char buf[1024];
-    snprintf(buf, sizeof(buf), "%s", chain);
     int count = 0;
-    char *save = NULL;
-    const char *tok = strtok_r(buf, ",", &save);
-    while (tok && count < max) {
-        if (parse_command(tok, &cmds[count]) == 0)
-            count++;
-        tok = strtok_r(NULL, ",", &save);
+    const char *part = chain;
+
+    while (true) {
+        const char *comma = strchr(part, ',');
+        size_t len = comma ? (size_t)(comma - part) : strlen(part);
+        char token[1024];
+        if (len == 0 || len >= sizeof(token) || count >= max) {
+            free_shell_commands(cmds, count);
+            return -1;
+        }
+
+        memcpy(token, part, len);
+        token[len] = '\0';
+        if (parse_command(token, &cmds[count]) != 0) {
+            free_shell_commands(cmds, count);
+            return -1;
+        }
+        count++;
+
+        if (!comma)
+            break;
+        part = comma + 1;
     }
     return count;
 }
 
 static void store_start_commands(struct config *cfg, const struct command *cmds,
                                  int ncmds) {
+    free_shell_commands(cfg->start_commands, cfg->num_start_commands);
     cfg->num_start_commands = 0;
     for (int i = 1; i < ncmds; i++)
         cfg->start_commands[cfg->num_start_commands++] = cmds[i];
@@ -218,10 +329,7 @@ static int store_binding(struct config *cfg, const char *path, int lineno,
                          xkb_keysym_t sym, uint32_t mods,
                          const struct command *cmds, int ncmds) {
     if (cfg->num_bindings >= MAX_BINDINGS) {
-        for (int i = 0; i < ncmds; i++) {
-            if (cmds[i].type == CMD_SHELL)
-                free(cmds[i].arg.shell_cmd);
-        }
+        free_shell_commands(cmds, ncmds);
         log_warn("%s:%d: too many bindings (max %d)", path, lineno,
                  MAX_BINDINGS);
         return -1;
@@ -266,9 +374,10 @@ static int parse_hex_color(const char *str, uint32_t *color) {
         digit_count++;
     }
 
-    char terminator = str[digit_count];
-    if (digit_count == 0 ||
-        (terminator != '\0' && !isspace((unsigned char)terminator)))
+    const char *terminator = str + digit_count;
+    while (isspace((unsigned char)*terminator))
+        terminator++;
+    if (digit_count == 0 || *terminator != '\0')
         return -1;
     if (digit_count != 3 && digit_count != 6 && digit_count != 8)
         return -1;
@@ -294,6 +403,8 @@ static bool try_color_directive(const char *line, const char *keyword,
     const char *args = match_keyword(line, keyword);
     if (!args)
         return false;
+    if (!has_argument_separator(args))
+        return true;
     uint32_t parsed;
     if (parse_hex_color(args, &parsed) == 0)
         *out = parsed;
@@ -325,6 +436,9 @@ static int parse_line(struct config *cfg, const char *path, int lineno,
     if (comment)
         *comment = '\0';
 
+    size_t line_len = strlen(line);
+    while (line_len > 0 && isspace((unsigned char)line[line_len - 1]))
+        line[--line_len] = '\0';
     while (isspace((unsigned char)*line))
         line++;
 
@@ -332,6 +446,7 @@ static int parse_line(struct config *cfg, const char *path, int lineno,
         return 0;
 
     if (strcmp(line, "clear") == 0) {
+        free_binding_shell_commands(cfg->bindings, cfg->num_bindings);
         cfg->num_bindings = 0;
         log_debug("clear: reset bindings");
         return 0;
@@ -364,7 +479,9 @@ static int parse_line(struct config *cfg, const char *path, int lineno,
 
     struct command cmds[MAX_COMMANDS] = {0};
     int ncmds = parse_command_chain(chain, cmds, MAX_COMMANDS);
-    if (ncmds <= 0)
+    if (ncmds < 0)
+        return -1;
+    if (ncmds == 0)
         return 0;
 
     if (cmds[0].type == CMD_START) {
@@ -387,18 +504,31 @@ int config_load(struct config *cfg, const char *path) {
     cfg->region_bg = REGION_BG_DEFAULT;
     cfg->line_width = GRID_LINE_WIDTH_DEFAULT;
 
-    char line[1024];
+    enum { CONFIG_LINE_MAX = 1023 };
+    char *line = NULL;
+    size_t line_capacity = 0;
+    ssize_t line_length;
     int lineno = 0;
-    while (fgets(line, sizeof(line), f)) {
+    while ((line_length = getline(&line, &line_capacity, f)) != -1) {
         lineno++;
-        size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
-            line[--len] = '\0';
+        while (line_length > 0 &&
+               (line[line_length - 1] == '\n' || line[line_length - 1] == '\r'))
+            line[--line_length] = '\0';
+        if (line_length > CONFIG_LINE_MAX) {
+            log_warn("%s:%d: line too long", path, lineno);
+            continue;
+        }
 
         if (parse_line(cfg, path, lineno, line) != 0)
             log_warn("parse error at %s:%d", path, lineno);
     }
 
+    free(line);
+    if (ferror(f)) {
+        log_err("failed to read %s", path);
+        fclose(f);
+        return -1;
+    }
     fclose(f);
     return 0;
 }
@@ -410,10 +540,11 @@ xkb_keycode_t config_keycode_for_keysym(struct xkb_keymap *keymap,
 
     xkb_keycode_t min = xkb_keymap_min_keycode(keymap);
     xkb_keycode_t max = xkb_keymap_max_keycode(keymap);
-    for (xkb_keycode_t keycode = min; keycode <= max; keycode++) {
-        xkb_layout_index_t layouts =
-            xkb_keymap_num_layouts_for_key(keymap, keycode);
-        for (xkb_layout_index_t layout = 0; layout < layouts; layout++) {
+    xkb_layout_index_t layouts = xkb_keymap_num_layouts(keymap);
+    for (xkb_layout_index_t layout = 0; layout < layouts; layout++) {
+        for (xkb_keycode_t keycode = min; keycode <= max; keycode++) {
+            if (layout >= xkb_keymap_num_layouts_for_key(keymap, keycode))
+                continue;
             xkb_level_index_t levels =
                 xkb_keymap_num_levels_for_key(keymap, keycode, layout);
             for (xkb_level_index_t level = 0; level < levels; level++) {
