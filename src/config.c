@@ -129,9 +129,8 @@ static int parse_command(const char *str, struct command *cmd) {
     if (try_simple_command(str, cmd))
         return 0;
 
-    const char *args;
-
-    if ((args = match_keyword(str, "grid"))) {
+    const char *args = match_keyword(str, "grid");
+    if (args) {
         cmd->type = CMD_GRID;
         int cols = 0, rows = 0;
         if (sscanf(args, " %dx%d", &cols, &rows) == 2) {
@@ -142,16 +141,32 @@ static int parse_command(const char *str, struct command *cmd) {
             cmd->arg.grid.cols = n;
             cmd->arg.grid.rows = n;
         }
-    } else if ((args = match_keyword(str, "cell-select"))) {
+        return 0;
+    }
+
+    args = match_keyword(str, "cell-select");
+    if (args) {
         cmd->type = CMD_CELL_SELECT;
         cmd->arg.cell = atoi(args);
-    } else if ((args = match_keyword(str, "click"))) {
+        return 0;
+    }
+
+    args = match_keyword(str, "click");
+    if (args) {
         cmd->type = CMD_CLICK;
         cmd->arg.button = atoi(args);
-    } else if ((args = match_keyword(str, "drag"))) {
+        return 0;
+    }
+
+    args = match_keyword(str, "drag");
+    if (args) {
         cmd->type = CMD_DRAG;
         cmd->arg.button = atoi(args);
-    } else if ((args = match_keyword(str, "cursorzoom"))) {
+        return 0;
+    }
+
+    args = match_keyword(str, "cursorzoom");
+    if (args) {
         cmd->type = CMD_CURSORZOOM;
         int w = 0, h = 0;
         if (sscanf(args, " %d %d", &w, &h) == 2) {
@@ -162,13 +177,16 @@ static int parse_command(const char *str, struct command *cmd) {
             cmd->arg.zoom.w = s;
             cmd->arg.zoom.h = s;
         }
-    } else if ((args = match_keyword(str, "shell")) ||
-               (args = match_keyword(str, "sh"))) {
-        return parse_shell(args, cmd);
-    } else {
-        return -1;
+        return 0;
     }
-    return 0;
+
+    args = match_keyword(str, "shell");
+    if (!args)
+        args = match_keyword(str, "sh");
+    if (args)
+        return parse_shell(args, cmd);
+
+    return -1;
 }
 
 /* Parse a comma-separated command chain into a binding's

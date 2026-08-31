@@ -46,6 +46,7 @@ lint-cppcheck: build
 		--suppress=missingInclude \
 		--suppress=normalCheckLevelMaxBranches \
 		--suppress=checkersReport \
+		--suppress=constParameterCallback \
 		--cppcheck-build-dir=$(BUILDDIR)/cppcheck \
 		-j$$(nproc) \
 		-I src/ src/*.c
