@@ -1137,6 +1137,14 @@ int overlay_run(struct overlay *ov, struct config *cfg,
     return 0;
 }
 
+void overlay_stop_drag(struct overlay *ov, struct region_state *rs) {
+    if (!rs->dragging)
+        return;
+    vptr_button_up(ov, rs->drag_button);
+    rs->dragging = false;
+    rs->drag_button = 0;
+}
+
 void vptr_warp(struct overlay *ov, int x, int y) {
     if (!ov || !ov->vptr)
         return;

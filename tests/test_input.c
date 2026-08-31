@@ -87,6 +87,14 @@ void vptr_button_up(struct overlay *ov, int button) {
     record_event(ov, EVENT_BUTTON_UP);
 }
 
+void overlay_stop_drag(struct overlay *ov, struct region_state *rs) {
+    if (!rs->dragging)
+        return;
+    vptr_button_up(ov, rs->drag_button);
+    rs->dragging = false;
+    rs->drag_button = 0;
+}
+
 static void test_cursorzoom_uses_pointer_position(void) {
     struct overlay ov;
     memset(&ov, 0, sizeof(ov));

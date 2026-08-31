@@ -83,9 +83,7 @@ static void stop_drag(struct overlay *ov, struct region_state *rs) {
         return;
 
     log_debug("drag end button=%d", rs->drag_button);
-    vptr_button_up(ov, rs->drag_button);
-    rs->dragging = false;
-    rs->drag_button = 0;
+    overlay_stop_drag(ov, rs);
 }
 
 static void exec_drag(struct overlay *ov, struct region_state *rs,
@@ -195,6 +193,11 @@ static bool execute_one(struct overlay *ov, struct region_state *rs,
     return false;
 }
 
+void execute_startup_commands(struct overlay *ov, struct region_state *rs,
+                              const struct command *cmds, int ncmds) {
+    execute_commands(ov, rs, cmds, ncmds);
+}
+
 void execute_commands(struct overlay *ov, struct region_state *rs,
                       const struct command *cmds, int ncmds) {
     bool has_history_back = false;
@@ -207,7 +210,7 @@ void execute_commands(struct overlay *ov, struct region_state *rs,
     }
 
     if (!has_history_back)
-        region_save(rs);
+        region_save_snapshot(rs, rs->current);
 
     for (int i = 0; i < ncmds; i++) {
         execute_one(ov, rs, &cmds[i]);

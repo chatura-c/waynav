@@ -16,18 +16,19 @@ void region_init(struct region_state *rs, int scr_w, int scr_h) {
     rs->current.h = scr_h;
     rs->current.grid_cols = 2;
     rs->current.grid_rows = 2;
+    region_resize(rs, scr_w, scr_h);
     rs->history_len = 0;
     rs->dragging = false;
     rs->drag_button = 0;
 }
 
-void region_save(struct region_state *rs) {
+void region_save_snapshot(struct region_state *rs, struct region snapshot) {
     if (rs->history_len >= HISTORY_MAX) {
         memmove(&rs->history[0], &rs->history[1],
                 (HISTORY_MAX - 1) * sizeof(struct region));
         rs->history_len = HISTORY_MAX - 1;
     }
-    rs->history[rs->history_len] = rs->current;
+    rs->history[rs->history_len] = snapshot;
     rs->history_len++;
 }
 
@@ -39,18 +40,24 @@ bool region_history_back(struct region_state *rs) {
     return true;
 }
 
-void region_set_grid(struct region_state *rs, int cols, int rows) {
-    if (cols > 0)
-        rs->current.grid_cols = cols;
-    if (rows > 0)
-        rs->current.grid_rows = rows;
+void region_resize(struct region_state *rs, int scr_w, int scr_h) {
+    rs->screen_w = scr_w;
+    rs->screen_h = scr_h;
 }
 
-void region_cell_select(struct region_state *rs, int cell) {
+bool region_set_grid(struct region_state *rs, int cols, int rows) {
+    if (cols <= 0 || rows <= 0)
+        return false;
+    rs->current.grid_cols = cols;
+    rs->current.grid_rows = rows;
+    return true;
+}
+
+bool region_cell_select(struct region_state *rs, int cell) {
     int cols = rs->current.grid_cols;
     int rows = rs->current.grid_rows;
     if (cell < 1 || cell > cols * rows)
-        return;
+        return false;
 
     /* keynav numbering: top-to-bottom within a column, then
      * left-to-right across columns. Cells are 1-based, so the
@@ -65,6 +72,7 @@ void region_cell_select(struct region_state *rs, int cell) {
     rs->current.y += cell_h * row;
     rs->current.w = cell_w;
     rs->current.h = cell_h;
+    return true;
 }
 
 void region_cut_left(struct region_state *rs) {
@@ -103,12 +111,13 @@ void region_move_down(struct region_state *rs) {
     rs->current.y += rs->current.h;
 }
 
-void region_cursorzoom(struct region_state *rs, int cursor_x, int cursor_y,
+bool region_cursorzoom(struct region_state *rs, int cursor_x, int cursor_y,
                        int w, int h) {
     rs->current.x = cursor_x - w / 2;
     rs->current.y = cursor_y - h / 2;
     rs->current.w = w;
     rs->current.h = h;
+    return true;
 }
 
 void region_center(const struct region_state *rs, int *x, int *y) {

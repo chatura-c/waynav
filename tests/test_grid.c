@@ -97,11 +97,11 @@ static void test_history(void) {
     struct region_state rs;
     region_init(&rs, 1000, 1000);
 
-    region_save(&rs);
+    region_save_snapshot(&rs, rs.current);
     region_cut_left(&rs);
     ASSERT_REGION(rs, 0, 0, 500, 1000);
 
-    region_save(&rs);
+    region_save_snapshot(&rs, rs.current);
     region_cut_up(&rs);
     ASSERT_REGION(rs, 0, 0, 500, 500);
 
