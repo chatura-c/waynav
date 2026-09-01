@@ -51,5 +51,5 @@ lint-cppcheck: build
 		-j$$(nproc) \
 		-I src/ src/*.c
 
-install: build
+install: clean build
 	meson install -C $(BUILDDIR)
