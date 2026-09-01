@@ -113,18 +113,24 @@ Recognized modifiers are
 .BR alt ,
 and
 .BR super .
-The final token is resolved by xkbcommon, so use symbolic key names such
-as
+The final token is resolved by xkbcommon to a physical keycode. Use a
+symbolic name for the desired key, such as
 .BR h ,
 .BR space ,
 .BR semicolon ,
 or
 .BR Return .
-Because keysyms are resolved after modifiers are applied, shifted
-bindings should use the shifted keysym, for example
-.B shift+H
-rather than
-.BR shift+h .
+The named keysym only identifies the physical key; modifier tokens determine
+the required state. For example,
+.B shift+h
+matches the physical
+.B h
+key while Shift is depressed. Names such as
+.B h
+and
+.B H
+can resolve to the same keycode and are aliases when their modifier masks are
+the same.
 .PP
 Command chains are comma-separated and contain at most eight commands.
 The first command
@@ -180,9 +186,12 @@ Toggle a drag with button 1, 2, or 3.  When starting a drag,
 warps to the center of the current region and presses the button.  The
 next
 .B drag
-command releases it.  The
+command releases it.  A
+.B click
+for the same button also releases the drag without sending another press.
+The
 .B end
-command also releases an active drag.
+command releases an active drag as well.
 .TP
 .BI cursorzoom " size"
 Set the current region to a

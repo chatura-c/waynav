@@ -11,8 +11,10 @@ commands, region mutations, and overlay actions.
 - A binding whose first command is `start` MUST store the remaining chain in
   `config.start_commands`, not as a normal binding. `main.c` executes that chain
   once after overlay creation.
-- Bindings use post-modifier xkb keysyms. Shifted bindings therefore require the
-  shifted symbol, such as `shift+H` rather than `shift+h`.
+- Bindings use physical xkb keycodes. The final keysequence token is a keysym
+  name used only to resolve that keycode; modifier tokens determine the required
+  state. For example, `h` and `H` may be aliases, while `shift+h` requires the
+  physical `h` key with Shift depressed.
 - All command-keyword parsing MUST use `match_keyword()` and its returned
   argument pointer. Raw prefix checks and hard-coded argument offsets
   reintroduce prefix-collision bugs.
@@ -20,18 +22,28 @@ commands, region mutations, and overlay actions.
 ### Overlay
 
 The layer output MUST remain unset, and the virtual pointer MUST bind to the
-output reported by `wl_surface.enter`. Overlay and pointer coordinates MUST
-remain logical. The normal input region MUST be empty; pointer capture MUST
-restore it, and virtual warps MUST update the cached pointer position.
+output reported by `wl_surface.enter`. If the surface moves outputs, the virtual
+pointer MUST be recreated for the new output. Overlay and pointer coordinates
+MUST remain logical and within the reported extent. The normal input region MUST
+be empty; pointer capture MUST restore it and treat the result as one-shot, and
+virtual warps MUST update the cached pointer position.
 
 `xkb_mods_to_config()` MUST map depressed Shift, Ctrl, Alt, and Super state to
-`MOD_*` before `config_find_binding()`; otherwise modified bindings silently
-fail.
+`MOD_*` before keycode binding lookup; otherwise modified bindings silently
+fail. Key events delivered reentrantly during command execution MUST be
+deferred with their resolved binding snapshot until the outer binding finishes,
+and repeat selection MUST be serialized in the same event order.
 
 ### Input dispatch
 
-`execute_commands()` MUST release an active drag on `end`. After each command
-chain, it MUST request a redraw and save history unless `history-back` ran.
+`execute_commands()` MUST release an active drag on `end`, and `end` MUST
+terminate the remaining command chain. Layer close and overlay destruction MUST
+also release an active drag before the virtual pointer is destroyed. After each
+command chain, it MUST request
+a redraw. Each contiguous segment between `history-back` commands MUST be one
+history unit: if the segment changed the region, save its pre-segment snapshot
+before the following `history-back` runs. Startup commands MUST use the same
+termination and redraw behavior without recording interactive history.
 
 ## Linting and logging
 
