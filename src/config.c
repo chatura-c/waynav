@@ -6,6 +6,8 @@
  */
 
 #include "log.h"
+#include "memory-util.h"
+#include "string-util.h"
 #include "waynav.h"
 
 #include <ctype.h>
@@ -18,9 +20,8 @@
 
 static xkb_keysym_t parse_keysym(const char *name) {
     xkb_keysym_t sym = xkb_keysym_from_name(name, 0);
-    if (sym == XKB_KEY_NoSymbol) {
+    if (sym == XKB_KEY_NoSymbol)
         sym = xkb_keysym_from_name(name, XKB_KEYSYM_CASE_INSENSITIVE);
-    }
     return sym;
 }
 
@@ -28,13 +29,13 @@ static xkb_keysym_t parse_keysym(const char *name) {
  * Modifiers: shift, ctrl, alt, super.
  * Last token is the key name. */
 static bool parse_modifier(const char *name, uint32_t *mods) {
-    if (strcasecmp(name, "shift") == 0)
+    if (strcaseeq(name, "shift"))
         *mods |= MOD_SHIFT;
-    else if (strcasecmp(name, "ctrl") == 0 || strcasecmp(name, "control") == 0)
+    else if (strcaseeq(name, "ctrl") || strcaseeq(name, "control"))
         *mods |= MOD_CTRL;
-    else if (strcasecmp(name, "alt") == 0)
+    else if (strcaseeq(name, "alt"))
         *mods |= MOD_ALT;
-    else if (strcasecmp(name, "super") == 0)
+    else if (strcaseeq(name, "super"))
         *mods |= MOD_SUPER;
     else
         return false;
@@ -82,8 +83,6 @@ static const struct {
     {"warp", CMD_WARP},           {"history-back", CMD_HISTORY_BACK},
 };
 
-#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
-
 /* If str starts with keyword followed by a non-alphabetic boundary,
  * return a pointer just past the keyword; otherwise NULL. The boundary
  * guard stops "click" from matching "clicker".
@@ -128,7 +127,7 @@ static bool parse_int_value(const char **str, int *value) {
 }
 
 static bool parse_positive_int(const char **str, int *value) {
-    return (parse_int_value(str, value) && *value > 0) != 0;
+    return parse_int_value(str, value) && *value > 0;
 }
 
 static bool arguments_finished(const char *str) {
@@ -155,8 +154,8 @@ static bool parse_grid_args(const char *args, int *cols, int *rows) {
         *rows = *cols;
     }
 
-    return (arguments_finished(args) && *cols <= GRID_DIMENSION_MAX &&
-            *rows <= GRID_DIMENSION_MAX && *cols <= INT_MAX / *rows) != 0;
+    return arguments_finished(args) && *cols <= GRID_DIMENSION_MAX &&
+           *rows <= GRID_DIMENSION_MAX && *cols <= INT_MAX / *rows;
 }
 
 static bool parse_size_args(const char *args, int *w, int *h) {
@@ -445,7 +444,7 @@ static int parse_line(struct config *cfg, const char *path, int lineno,
     if (*line == '\0')
         return 0;
 
-    if (strcmp(line, "clear") == 0) {
+    if (streq(line, "clear")) {
         free_binding_shell_commands(cfg->bindings, cfg->num_bindings);
         cfg->num_bindings = 0;
         log_debug("clear: reset bindings");
@@ -499,7 +498,7 @@ int config_load(struct config *cfg, const char *path) {
         return -1;
     }
 
-    memset(cfg, 0, sizeof(*cfg));
+    ZERO_OBJECT(*cfg);
     cfg->grid_color = GRID_COLOR_DEFAULT;
     cfg->region_bg = REGION_BG_DEFAULT;
     cfg->line_width = GRID_LINE_WIDTH_DEFAULT;

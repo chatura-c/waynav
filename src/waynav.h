@@ -9,6 +9,8 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+
 #define MAX_COMMANDS 8
 #define MAX_BINDINGS 64
 

@@ -159,10 +159,9 @@ int main(int argc, char **argv) {
     struct region_state rs;
     region_init(&rs, scr_w, scr_h);
 
-    if (cfg.num_start_commands > 0) {
+    if (cfg.num_start_commands > 0)
         execute_startup_commands(ov, &rs, cfg.start_commands,
                                  cfg.num_start_commands);
-    }
 
     int ret = overlay_run(ov, &cfg, &rs);
 

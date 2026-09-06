@@ -6,6 +6,7 @@
  */
 
 #include "grid.h"
+#include "memory-util.h"
 #include <limits.h>
 #include <string.h>
 
@@ -15,7 +16,7 @@ void region_init(struct region_state *rs, int scr_w, int scr_h) {
     if (scr_h < 1)
         scr_h = 1;
 
-    memset(rs, 0, sizeof(*rs));
+    ZERO_OBJECT(*rs);
     rs->current.x = 0;
     rs->current.y = 0;
     rs->current.w = scr_w;

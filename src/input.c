@@ -110,7 +110,7 @@ static region_fn region_dispatch[] = {
 };
 
 static bool drag_button_valid(int button) {
-    return (button >= 1 && button <= DRAG_BUTTON_MAX) != 0;
+    return button >= 1 && button <= DRAG_BUTTON_MAX;
 }
 
 static void exec_drag(struct overlay *ov, struct region_state *rs,
@@ -208,15 +208,13 @@ static void execute_one(struct overlay *ov, struct region_state *rs,
                         const struct command *c) {
     log_debug("exec: %s", cmd_name(c->type));
 
-    if ((size_t)c->type <
-            sizeof(region_dispatch) / sizeof(region_dispatch[0]) &&
+    if ((size_t)c->type < ARRAY_LEN(region_dispatch) &&
         region_dispatch[c->type]) {
         region_dispatch[c->type](rs);
         return;
     }
 
-    if ((size_t)c->type < sizeof(cmd_dispatch) / sizeof(cmd_dispatch[0]) &&
-        cmd_dispatch[c->type]) {
+    if ((size_t)c->type < ARRAY_LEN(cmd_dispatch) && cmd_dispatch[c->type]) {
         cmd_dispatch[c->type](ov, rs, c);
         return;
     }
@@ -231,8 +229,8 @@ static void execute_one(struct overlay *ov, struct region_state *rs,
 }
 
 static bool region_equal(const struct region *a, const struct region *b) {
-    return (a->x == b->x && a->y == b->y && a->w == b->w && a->h == b->h &&
-            a->grid_cols == b->grid_cols && a->grid_rows == b->grid_rows) != 0;
+    return a->x == b->x && a->y == b->y && a->w == b->w && a->h == b->h &&
+           a->grid_cols == b->grid_cols && a->grid_rows == b->grid_rows;
 }
 
 static int execute_segment(struct overlay *ov, struct region_state *rs,

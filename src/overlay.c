@@ -11,6 +11,8 @@
  */
 
 #include "log.h"
+#include "memory-util.h"
+#include "string-util.h"
 #include "waynav.h"
 
 #include "fractional-scale-v1-client-protocol.h"
@@ -111,7 +113,7 @@ static void buf_destroy(struct shm_buffer *b) {
         wl_buffer_destroy(b->wl_buf);
     if (b->data)
         munmap(b->data, b->data_size);
-    memset(b, 0, sizeof(*b));
+    ZERO_OBJECT(*b);
 }
 
 static const struct wl_buffer_listener buf_listener = {
@@ -349,7 +351,6 @@ static void output_geometry(void *data, struct wl_output *wl_output, int32_t x,
                             int32_t physical_height, int32_t subpixel,
                             const char *make, const char *model,
                             int32_t transform) {
-    (void)wl_output;
     (void)x;
     (void)y;
     (void)physical_width;
@@ -366,7 +367,6 @@ static void output_geometry(void *data, struct wl_output *wl_output, int32_t x,
 
 static void output_mode(void *data, struct wl_output *wl_output, uint32_t flags,
                         int32_t width, int32_t height, int32_t refresh) {
-    (void)wl_output;
     (void)refresh;
     if (!(flags & WL_OUTPUT_MODE_CURRENT))
         return;
@@ -499,44 +499,44 @@ static void registry_global(void *data, struct wl_registry *registry,
                             uint32_t version) {
     struct overlay *ov = data;
 
-    if (strcmp(interface, wl_compositor_interface.name) == 0) {
+    if (streq(interface, wl_compositor_interface.name)) {
         ov->compositor =
             wl_registry_bind(registry, name, &wl_compositor_interface,
                              negotiated_version(version, 4));
-    } else if (strcmp(interface, wl_shm_interface.name) == 0) {
+    } else if (streq(interface, wl_shm_interface.name)) {
         ov->shm = wl_registry_bind(registry, name, &wl_shm_interface,
                                    negotiated_version(version, 1));
-    } else if (strcmp(interface, wl_seat_interface.name) == 0) {
+    } else if (streq(interface, wl_seat_interface.name)) {
         if (!ov->seat) {
             ov->seat = wl_registry_bind(registry, name, &wl_seat_interface,
                                         negotiated_version(version, 7));
             ov->seat_global_name = name;
         }
-    } else if (strcmp(interface, wl_output_interface.name) == 0) {
+    } else if (streq(interface, wl_output_interface.name)) {
         bind_output(ov, registry, name, version);
-    } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
+    } else if (streq(interface, zwlr_layer_shell_v1_interface.name)) {
         uint32_t layer_shell_version = version;
         if (layer_shell_version > ZWLR_LAYER_SHELL_V1_DESTROY_SINCE_VERSION)
             layer_shell_version = ZWLR_LAYER_SHELL_V1_DESTROY_SINCE_VERSION;
         ov->layer_shell =
             wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface,
                              layer_shell_version);
-    } else if (strcmp(interface,
-                      zwlr_virtual_pointer_manager_v1_interface.name) == 0) {
+    } else if (streq(interface,
+                     zwlr_virtual_pointer_manager_v1_interface.name)) {
         ov->vptr_mgr = wl_registry_bind(
             registry, name, &zwlr_virtual_pointer_manager_v1_interface,
             negotiated_version(version, 2));
-    } else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
+    } else if (streq(interface, zxdg_output_manager_v1_interface.name)) {
         ov->xdg_out_mgr =
             wl_registry_bind(registry, name, &zxdg_output_manager_v1_interface,
                              negotiated_version(version, 2));
         create_xdg_outputs(ov);
-    } else if (strcmp(interface, wp_viewporter_interface.name) == 0) {
+    } else if (streq(interface, wp_viewporter_interface.name)) {
         ov->viewporter =
             wl_registry_bind(registry, name, &wp_viewporter_interface,
                              negotiated_version(version, 1));
-    } else if (strcmp(interface,
-                      wp_fractional_scale_manager_v1_interface.name) == 0) {
+    } else if (streq(interface,
+                     wp_fractional_scale_manager_v1_interface.name)) {
         ov->frac_scale_mgr = wl_registry_bind(
             registry, name, &wp_fractional_scale_manager_v1_interface,
             negotiated_version(version, 1));
@@ -632,9 +632,8 @@ static void surface_leave(void *data, struct wl_surface *surface,
                           struct wl_output *wl_output) {
     (void)surface;
     struct overlay *ov = data;
-    if (ov->selected_output && ov->selected_output->wl_output == wl_output) {
+    if (ov->selected_output && ov->selected_output->wl_output == wl_output)
         ov->selected_output = NULL;
-    }
 }
 
 static const struct wl_surface_listener surface_listener = {
@@ -806,7 +805,7 @@ static void defer_key(struct overlay *ov, uint32_t key,
         size_t capacity =
             ov->deferred_key_capacity == 0 ? 8 : ov->deferred_key_capacity * 2;
         struct deferred_key *keys =
-            realloc(ov->deferred_keys, capacity * sizeof(*keys));
+            reallocarray(ov->deferred_keys, capacity, sizeof(*keys));
         if (!keys) {
             log_warn("key: failed to defer key %u", key + 8);
             return;
@@ -832,7 +831,8 @@ static void pressed_key_add(struct overlay *ov, uint32_t key) {
     if (ov->pressed_key_count == ov->pressed_key_capacity) {
         size_t capacity =
             ov->pressed_key_capacity == 0 ? 8 : ov->pressed_key_capacity * 2;
-        uint32_t *keys = realloc(ov->pressed_keys, capacity * sizeof(*keys));
+        uint32_t *keys =
+            reallocarray(ov->pressed_keys, capacity, sizeof(*keys));
         if (!keys) {
             log_warn("key: failed to track pressed key %u", key + 8);
             return;
@@ -944,9 +944,8 @@ static void kbd_modifiers(void *data, struct wl_keyboard *kbd, uint32_t serial,
     (void)kbd;
     (void)serial;
     struct overlay *ov = data;
-    if (ov->xkb_state) {
+    if (ov->xkb_state)
         xkb_state_update_mask(ov->xkb_state, dep, lat, locked, 0, 0, group);
-    }
 }
 
 static void kbd_repeat_info(void *data, struct wl_keyboard *kbd, int32_t rate,
@@ -1120,10 +1119,9 @@ static void commit_buffer(struct overlay *ov, struct shm_buffer *buffer) {
     buffer->state = BUF_BUSY;
     wl_surface_set_buffer_scale(ov->surface, 1);
     wl_surface_attach(ov->surface, buffer->wl_buf, 0, 0);
-    if (ov->viewport) {
+    if (ov->viewport)
         wp_viewport_set_destination(ov->viewport, (int32_t)ov->surf_width,
                                     (int32_t)ov->surf_height);
-    }
     wl_surface_damage(ov->surface, 0, 0, (int32_t)ov->surf_width,
                       (int32_t)ov->surf_height);
     wl_surface_commit(ov->surface);
