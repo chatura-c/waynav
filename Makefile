@@ -1,4 +1,6 @@
-.PHONY: all build test int-test check dist clean install fmt fmt-check lint lint-tidy lint-scan lint-cppcheck
+.PHONY: all build test int-test check dist clean install fmt fmt-check lint lint-tidy lint-scan lint-cppcheck lint-cocci cocci cocci-apply
+
+SPATCH ?= spatch
 
 BUILDDIR ?= build
 PREFIX ?= /usr
@@ -50,6 +52,18 @@ lint-cppcheck: build
 		--cppcheck-build-dir=$(BUILDDIR)/cppcheck \
 		-j$$(nproc) \
 		-I src/ src/*.c
+
+spatch = "$(SPATCH)" --very-quiet --no-includes $(1) --sp-file "$(2)" src/*.c
+cocci  = $(foreach rule,$(wildcard coccinelle/*.cocci),$(call spatch,$(1),$(rule)) &&) true
+
+cocci:
+	@$(call cocci)
+
+cocci-apply:
+	@$(call cocci,--in-place)
+
+lint-cocci:
+	@output=$$($(call cocci)) && printf '%s\n' "$$output" && test -z "$$output"
 
 install: clean build
 	meson install -C $(BUILDDIR)
