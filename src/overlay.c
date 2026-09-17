@@ -31,6 +31,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/timerfd.h>
+#include <time.h>
 #include <unistd.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
@@ -1729,13 +1730,20 @@ void vptr_click(struct overlay *ov, int button) {
     if (!ov || !ov->vptr)
         return;
 
-    /* Buttons 4/5 are scroll up/down. */
     if (button == 4 || button == 5) {
-        /* Axis scroll: 4=up (negative), 5=down (positive).
-         * Value 15 is ~one notch. */
-        int32_t dir = (button == 5) ? 15 : -15;
-        zwlr_virtual_pointer_v1_axis(ov->vptr, 0, 0 /* vertical */,
-                                     wl_fixed_from_int(dir));
+        struct timespec now;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
+            log_warn("scroll: clock_gettime failed: %s", strerror(errno));
+            return;
+        }
+        uint32_t time_msec = (uint32_t)((uint64_t)now.tv_sec * 1000 +
+                                        (uint64_t)now.tv_nsec / 1000000);
+        int32_t steps = button == 5 ? 1 : -1;
+        zwlr_virtual_pointer_v1_axis_discrete(
+            ov->vptr, time_msec, WL_POINTER_AXIS_VERTICAL_SCROLL,
+            wl_fixed_from_int(15 * steps), steps);
+        zwlr_virtual_pointer_v1_axis_source(ov->vptr,
+                                            WL_POINTER_AXIS_SOURCE_WHEEL);
         zwlr_virtual_pointer_v1_frame(ov->vptr);
         wl_display_flush(ov->display);
         return;

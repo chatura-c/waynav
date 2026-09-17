@@ -28,6 +28,9 @@ MUST remain logical and within the reported extent. The normal input region MUST
 be empty; pointer capture MUST restore it and treat the result as one-shot, and
 virtual warps MUST update the cached pointer position.
 
+niri discards a virtual pointer's axis source until a timestamped axis request
+creates its pending frame.
+
 `xkb_mods_to_config()` MUST map depressed Shift, Ctrl, Alt, and Super state to
 `MOD_*` before keycode binding lookup; otherwise modified bindings silently
 fail. Key events delivered reentrantly during command execution MUST be
