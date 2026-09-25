@@ -1,0 +1,59 @@
+# Install: cp config/waynavrc ~/.config/waynav/waynavrc
+# Hyprland:  bind = $mainMod, Tab, exec, ~/.local/bin/waynav
+
+clear
+line-width 2
+grid-color 6699ffcc
+region-bg 6699ff18
+super+semicolon start,grid 3x3
+
+# cell-select numbering is column-major: 1,2,3 = left column top->bottom, 4,5,6 = middle, 7,8,9 = right.
+# Keys follow numpad layout (7 8 9 on top).
+7 cell-select 1,warp
+8 cell-select 4,warp
+9 cell-select 7,warp
+4 cell-select 2,warp
+5 cell-select 5,warp
+6 cell-select 8,warp
+1 cell-select 3,warp
+2 cell-select 6,warp
+3 cell-select 9,warp
+
+# numpad, NumLock on
+KP_7 cell-select 1,warp
+KP_8 cell-select 4,warp
+KP_9 cell-select 7,warp
+KP_4 cell-select 2,warp
+KP_5 cell-select 5,warp
+KP_6 cell-select 8,warp
+KP_1 cell-select 3,warp
+KP_2 cell-select 6,warp
+KP_3 cell-select 9,warp
+
+# numpad, NumLock off
+KP_Home cell-select 1,warp
+KP_Up cell-select 4,warp
+KP_Prior cell-select 7,warp
+KP_Left cell-select 2,warp
+KP_Begin cell-select 5,warp
+KP_Right cell-select 8,warp
+KP_End cell-select 3,warp
+KP_Down cell-select 6,warp
+KP_Next cell-select 9,warp
+
+# fine adjust
+h move-left,warp
+j move-down,warp
+k move-up,warp
+l move-right,warp
+
+# click (moves pointer to region center, clicks, exits)
+space warp,click 1,end
+Return warp,click 1,end
+KP_Enter warp,click 1,end
+shift+space warp,click 3,end
+super+space warp,click 3,end
+shift+Return warp,click 3,end
+BackSpace history-back
+Escape end
+semicolon end
