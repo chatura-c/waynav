@@ -1483,7 +1483,7 @@ void overlay_destroy(struct overlay *ov) {
 }
 
 void overlay_redraw(struct overlay *ov, struct region_state *rs) {
-    if (!ov)
+    if (!ov || !ov->surface)
         return;
     ov->rs = rs;
     request_frame(ov);
@@ -1689,6 +1689,13 @@ static int clamp_coordinate(int value, int extent) {
     return value;
 }
 
+static uint32_t now_msec(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint32_t)((uint64_t)now.tv_sec * 1000 +
+                      (uint64_t)now.tv_nsec / 1000000);
+}
+
 void vptr_warp(struct overlay *ov, int x, int y) {
     if (!ov || !ov->vptr)
         return;
@@ -1703,7 +1710,7 @@ void vptr_warp(struct overlay *ov, int x, int y) {
                  clamped_y);
     log_debug("vptr warp: %d,%d in %ux%u", clamped_x, clamped_y, ow, oh);
 
-    zwlr_virtual_pointer_v1_motion_absolute(ov->vptr, 0, (uint32_t)clamped_x,
+    zwlr_virtual_pointer_v1_motion_absolute(ov->vptr, now_msec(), (uint32_t)clamped_x,
                                             (uint32_t)clamped_y, ow, oh);
     zwlr_virtual_pointer_v1_frame(ov->vptr);
     ov->cursor_x = clamped_x;
@@ -1753,11 +1760,23 @@ void vptr_click(struct overlay *ov, int button) {
     if (!btn)
         return;
 
-    zwlr_virtual_pointer_v1_button(ov->vptr, 0, btn,
+    if (ov->layer_surface) {
+        zwlr_layer_surface_v1_destroy(ov->layer_surface);
+        ov->layer_surface = NULL;
+    }
+    if (ov->surface) {
+        wl_surface_destroy(ov->surface);
+        ov->surface = NULL;
+    }
+    wl_display_roundtrip(ov->display);
+    usleep(100000);
+    zwlr_virtual_pointer_v1_button(ov->vptr, now_msec(), btn,
                                    WL_POINTER_BUTTON_STATE_PRESSED);
     zwlr_virtual_pointer_v1_frame(ov->vptr);
+    wl_display_flush(ov->display);
 
-    zwlr_virtual_pointer_v1_button(ov->vptr, 0, btn,
+    usleep(30000);
+    zwlr_virtual_pointer_v1_button(ov->vptr, now_msec(), btn,
                                    WL_POINTER_BUTTON_STATE_RELEASED);
     zwlr_virtual_pointer_v1_frame(ov->vptr);
     wl_display_flush(ov->display);
@@ -1770,7 +1789,7 @@ void vptr_button_down(struct overlay *ov, int button) {
     if (!btn)
         return;
 
-    zwlr_virtual_pointer_v1_button(ov->vptr, 0, btn,
+    zwlr_virtual_pointer_v1_button(ov->vptr, now_msec(), btn,
                                    WL_POINTER_BUTTON_STATE_PRESSED);
     zwlr_virtual_pointer_v1_frame(ov->vptr);
     wl_display_flush(ov->display);
@@ -1783,7 +1802,7 @@ void vptr_button_up(struct overlay *ov, int button) {
     if (!btn)
         return;
 
-    zwlr_virtual_pointer_v1_button(ov->vptr, 0, btn,
+    zwlr_virtual_pointer_v1_button(ov->vptr, now_msec(), btn,
                                    WL_POINTER_BUTTON_STATE_RELEASED);
     zwlr_virtual_pointer_v1_frame(ov->vptr);
     wl_display_flush(ov->display);
